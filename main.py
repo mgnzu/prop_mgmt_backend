@@ -111,9 +111,23 @@ def get_property(property_id: int, bq: bigquery.Client = Depends(get_bq_client))
 
 @app.post("/properties")
 def create_property(property: Property, bq: bigquery.Client = Depends(get_bq_client)):
+
+    # Get next property_id
+    get_id_query = f"""
+        SELECT COALESCE(MAX(property_id), 0) + 1 AS next_id
+        FROM `{PROJECT_ID}.{DATASET}.properties`
+    """
+
+    try:
+        next_id_result = list(bq.query(get_id_query).result())[0]
+        next_property_id = next_id_result["next_id"]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate property_id: {str(e)}")
+
     table_id = f"{PROJECT_ID}.{DATASET}.properties"
 
     row = {
+        "property_id": next_property_id,
         "name": property.name,
         "address": property.address,
         "city": property.city,
@@ -121,7 +135,7 @@ def create_property(property: Property, bq: bigquery.Client = Depends(get_bq_cli
         "postal_code": property.postal_code,
         "property_type": property.property_type,
         "tenant_name": property.tenant_name,
-        "monthly_rent": property.monthly_rent,
+        "monthly_rent": property.monthly_rent
     }
 
     errors = bq.insert_rows_json(table_id, [row])
@@ -129,8 +143,10 @@ def create_property(property: Property, bq: bigquery.Client = Depends(get_bq_cli
     if errors:
         raise HTTPException(status_code=500, detail=str(errors))
 
-    return {"message": "Property created successfully"}
-
+    return {
+        "message": "Property created successfully",
+        "property_id": next_property_id
+    }
 
 @app.put("/properties/{property_id}")
 def update_property(property_id: int, property: Property, bq: bigquery.Client = Depends(get_bq_client)):
