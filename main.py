@@ -221,9 +221,21 @@ def get_income(property_id: int, bq: bigquery.Client = Depends(get_bq_client)):
 
 @app.post("/income/{property_id}")
 def add_income(property_id: int, income: Income, bq: bigquery.Client = Depends(get_bq_client)):
+    get_id_query = f"""
+        SELECT COALESCE(MAX(income_id), 0) + 1 AS next_id
+        FROM `{PROJECT_ID}.{DATASET}.income`
+    """
+
+    try:
+        next_id_result = list(bq.query(get_id_query).result())[0]
+        next_income_id = next_id_result["next_id"]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate income_id: {str(e)}")
+
     table_id = f"{PROJECT_ID}.{DATASET}.income"
 
     row = {
+        "income_id": next_income_id,
         "property_id": property_id,
         "amount": income.amount,
         "date": income.date,
@@ -235,7 +247,10 @@ def add_income(property_id: int, income: Income, bq: bigquery.Client = Depends(g
     if errors:
         raise HTTPException(status_code=500, detail=str(errors))
 
-    return {"message": "Income added successfully"}
+    return {
+        "message": "Income added successfully",
+        "income_id": next_income_id
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -268,9 +283,21 @@ def get_expenses(property_id: int, bq: bigquery.Client = Depends(get_bq_client))
 
 @app.post("/expenses/{property_id}")
 def add_expense(property_id: int, expense: Expense, bq: bigquery.Client = Depends(get_bq_client)):
+    get_id_query = f"""
+        SELECT COALESCE(MAX(expense_id), 0) + 1 AS next_id
+        FROM `{PROJECT_ID}.{DATASET}.expenses`
+    """
+
+    try:
+        next_id_result = list(bq.query(get_id_query).result())[0]
+        next_expense_id = next_id_result["next_id"]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate expense_id: {str(e)}")
+
     table_id = f"{PROJECT_ID}.{DATASET}.expenses"
 
     row = {
+        "expense_id": next_expense_id,
         "property_id": property_id,
         "amount": expense.amount,
         "date": expense.date,
@@ -282,8 +309,10 @@ def add_expense(property_id: int, expense: Expense, bq: bigquery.Client = Depend
     if errors:
         raise HTTPException(status_code=500, detail=str(errors))
 
-    return {"message": "Expense added successfully"}
-
+    return {
+        "message": "Expense added successfully",
+        "expense_id": next_expense_id
+    }
 
 # ---------------------------------------------------------------------------
 # Summary
