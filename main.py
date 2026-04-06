@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from google.cloud import bigquery
 from pydantic import BaseModel
+from typing import Optional
 
 app = FastAPI()
 
@@ -22,29 +23,37 @@ def get_bq_client():
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
-class Income(BaseModel):
-    amount: float
-    income_date: str
-    category: str
-
-
-class Expense(BaseModel):
-    amount: float
-    expense_date: str
-    category: str
-
-
 class Property(BaseModel):
     name: str
     address: str
     city: str
     state: str
     postal_code: str
+    property_type: Optional[str] = None
+    tenant_name: Optional[str] = None
+    monthly_rent: Optional[float] = None
+
+
+class Income(BaseModel):
+    amount: float
+    date: str
+    description: str
+
+
+class Expense(BaseModel):
+    amount: float
+    date: str
+    description: str
 
 
 # ---------------------------------------------------------------------------
 # Properties
 # ---------------------------------------------------------------------------
+@app.get("/")
+def root():
+    return {"message": "Property Management API is running"}
+
+
 @app.get("/properties")
 def get_properties(bq: bigquery.Client = Depends(get_bq_client)):
     query = f"""
@@ -64,13 +73,12 @@ def get_properties(bq: bigquery.Client = Depends(get_bq_client)):
 
     try:
         results = bq.query(query).result()
+        return [dict(row.items()) for row in results]
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database query failed: {str(e)}"
         )
-
-    return [dict(row.items()) for row in results]
 
 
 @app.get("/properties/{property_id}")
@@ -91,7 +99,7 @@ def get_property(property_id: int, bq: bigquery.Client = Depends(get_bq_client))
         results = list(bq.query(query, job_config=job_config).result())
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail=f"Database query failed: {str(e)}"
         )
 
@@ -110,7 +118,10 @@ def create_property(property: Property, bq: bigquery.Client = Depends(get_bq_cli
         "address": property.address,
         "city": property.city,
         "state": property.state,
-        "postal_code": property.postal_code
+        "postal_code": property.postal_code,
+        "property_type": property.property_type,
+        "tenant_name": property.tenant_name,
+        "monthly_rent": property.monthly_rent,
     }
 
     errors = bq.insert_rows_json(table_id, [row])
@@ -130,7 +141,10 @@ def update_property(property_id: int, property: Property, bq: bigquery.Client = 
             address = @address,
             city = @city,
             state = @state,
-            postal_code = @postal_code
+            postal_code = @postal_code,
+            property_type = @property_type,
+            tenant_name = @tenant_name,
+            monthly_rent = @monthly_rent
         WHERE property_id = @property_id
     """
 
@@ -142,16 +156,16 @@ def update_property(property_id: int, property: Property, bq: bigquery.Client = 
             bigquery.ScalarQueryParameter("city", "STRING", property.city),
             bigquery.ScalarQueryParameter("state", "STRING", property.state),
             bigquery.ScalarQueryParameter("postal_code", "STRING", property.postal_code),
+            bigquery.ScalarQueryParameter("property_type", "STRING", property.property_type),
+            bigquery.ScalarQueryParameter("tenant_name", "STRING", property.tenant_name),
+            bigquery.ScalarQueryParameter("monthly_rent", "FLOAT64", property.monthly_rent),
         ]
     )
 
     try:
         bq.query(query, job_config=job_config).result()
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Update failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
 
     return {"message": "Property updated successfully"}
 
@@ -172,10 +186,7 @@ def delete_property(property_id: int, bq: bigquery.Client = Depends(get_bq_clien
     try:
         bq.query(query, job_config=job_config).result()
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Delete failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
     return {"message": "Property deleted successfully"}
 
@@ -189,7 +200,7 @@ def get_income(property_id: int, bq: bigquery.Client = Depends(get_bq_client)):
         SELECT *
         FROM `{PROJECT_ID}.{DATASET}.income`
         WHERE property_id = @property_id
-        ORDER BY income_date
+        ORDER BY date
     """
 
     job_config = bigquery.QueryJobConfig(
@@ -200,13 +211,12 @@ def get_income(property_id: int, bq: bigquery.Client = Depends(get_bq_client)):
 
     try:
         results = bq.query(query, job_config=job_config).result()
+        return [dict(row.items()) for row in results]
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail=f"Database query failed: {str(e)}"
         )
-
-    return [dict(row.items()) for row in results]
 
 
 @app.post("/income/{property_id}")
@@ -216,8 +226,8 @@ def add_income(property_id: int, income: Income, bq: bigquery.Client = Depends(g
     row = {
         "property_id": property_id,
         "amount": income.amount,
-        "income_date": income.income_date,
-        "category": income.category
+        "date": income.date,
+        "description": income.description
     }
 
     errors = bq.insert_rows_json(table_id, [row])
@@ -237,7 +247,7 @@ def get_expenses(property_id: int, bq: bigquery.Client = Depends(get_bq_client))
         SELECT *
         FROM `{PROJECT_ID}.{DATASET}.expenses`
         WHERE property_id = @property_id
-        ORDER BY expense_date
+        ORDER BY date
     """
 
     job_config = bigquery.QueryJobConfig(
@@ -248,13 +258,12 @@ def get_expenses(property_id: int, bq: bigquery.Client = Depends(get_bq_client))
 
     try:
         results = bq.query(query, job_config=job_config).result()
+        return [dict(row.items()) for row in results]
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail=f"Database query failed: {str(e)}"
         )
-
-    return [dict(row.items()) for row in results]
 
 
 @app.post("/expenses/{property_id}")
@@ -264,8 +273,8 @@ def add_expense(property_id: int, expense: Expense, bq: bigquery.Client = Depend
     row = {
         "property_id": property_id,
         "amount": expense.amount,
-        "expense_date": expense.expense_date,
-        "category": expense.category
+        "date": expense.date,
+        "description": expense.description
     }
 
     errors = bq.insert_rows_json(table_id, [row])
@@ -301,7 +310,7 @@ def get_summary(property_id: int, bq: bigquery.Client = Depends(get_bq_client)):
         result = list(bq.query(query, job_config=job_config).result())[0]
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail=f"Summary query failed: {str(e)}"
         )
 
