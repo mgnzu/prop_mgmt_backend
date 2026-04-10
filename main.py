@@ -3,6 +3,16 @@ from google.cloud import bigquery
 from pydantic import BaseModel
 from typing import Optional
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # allow all for now (easiest)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app = FastAPI()
 
 PROJECT_ID = "hallowed-tape-489015-n2"
